@@ -1,7 +1,5 @@
 # Automotive-Cybersecurity-Projects
-Hands-on automotive cybersecurity projects including UDS, CAN bus IDS, DoIP, SOME/IP fuzzing, and ISO 21434 TARA examples.
 
-Automotive Cybersecurity Projects
 
 This repository contains a collection of practical, hands-on automotive cybersecurity projects developed to demonstrate skills across vehicle networking, diagnostics, threat modelling, embedded security, and automotive communication protocols.
 
