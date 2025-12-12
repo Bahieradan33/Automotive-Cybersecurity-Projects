@@ -80,6 +80,7 @@ Folder: iso21434-tara/
 📫 Author
 -----------------------------------------------------------------
 Bahieradan
+
 Automotive Cybersecurity & Embedded Systems Engineer
 
 LinkedIn: https://www.linkedin.com/in/bahieradan/
