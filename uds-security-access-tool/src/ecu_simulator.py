@@ -43,6 +43,27 @@ def build_negative_response(orginal_sid: int, nrc: int) -> bytes:
     """
     return bytes([NEGATIVE_RESPONSE, orginal_sid & 0xFF, nrc & 0xFF])
 
+def handle_pdu(pdu: bytes) -> bytes:
+    """
+    Handle incoming UDS PDU and return appropriate response PDU.
+    Currently supports only Diagnostic Session Control (0x10).
+    """
+    if len(pdu) == 0:
+        return build_negative_response(0x00, NRC_INCORRECT_MESSAGE_LENGTH_OR_INVALID_FORMAT)
+
+    sid = pdu[0]
+
+    # Handle Diagnostic Session Control (0x10)
+    if sid != DIAGNOSTIC_SESSION_CONTROL:
+        # For simplicity, accept any sub-function and respond positively
+        return build_negative_response(sid, NRC_SERVICE_NOT_SUPPORTED)
+  
+    # If message length is incorrect for known services, respond accordingly 
+    if len(pdu) != 2:
+        return build_negative_response(sid, NRC_INCORRECT_MESSAGE_LENGTH_OR_INVALID_FORMAT)
+
+    requested_session = pdu[1]
+    return build_positive_response(DIAGNOSTIC_SESSION_CONTROL, bytes([requested_session]))
 
 
 def main(host: str = 'localhost', port: int = 13400) -> None:
@@ -60,7 +81,7 @@ def main(host: str = 'localhost', port: int = 13400) -> None:
             print(f"Received message from {addr}: {data.hex()}")
 
 
-            response = b"Hi there!"
+            response = handle_pdu(data)
             sock.sendto(response, addr)
             print(f"Sent response to {addr}: {response.hex()}")
 
