@@ -23,26 +23,25 @@ DIAGNOSTIC_SESSION_CONTROL = 0x10
 POSITIVE_RESPONSE_OFFSET = 0x40
 NEGATIVE_RESPONSE = 0x7F
 
-#NRC Codes
+#Negative Response Codes
 NRC_SERVICE_NOT_SUPPORTED = 0x11
 NRC_SUBFUNCTION_NOT_SUPPORTED = 0x12
 NRC_INCORRECT_MESSAGE_LENGTH_OR_INVALID_FORMAT = 0x13
 
 
-def build_positive_response(orginal_sid: int, payload: bytes) -> bytes:
+def build_positive_response(orginal_sid: int, payload: bytes = b"") -> bytes:
     """
     Build positive response service ID
     [orginal SID + 0x40][payload...]
     """ 
-    return bytes([orginal_sid + POSITIVE_RESPONSE_OFFSET]) + payload
+    return bytes([(orginal_sid + POSITIVE_RESPONSE_OFFSET) & 0xFF]) + payload  
 
 def build_negative_response(orginal_sid: int, nrc: int) -> bytes:
     """
     Build negative response message
     [0x7F][orginal SID][NRC]
     """
-    return bytes([NEGATIVE_RESPONSE, orginal_sid, nrc])
-
+    return bytes([NEGATIVE_RESPONSE, orginal_sid & 0xFF, nrc & 0xFF])
 
 
 
