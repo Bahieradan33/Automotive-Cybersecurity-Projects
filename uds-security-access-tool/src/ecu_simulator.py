@@ -62,11 +62,16 @@ def handle_pdu(pdu: bytes) -> bytes:
     if len(pdu) != 2:
         return build_negative_response(sid, NRC_INCORRECT_MESSAGE_LENGTH_OR_INVALID_FORMAT)
 
+    #Accept common sub-functions: 0x01 (Default Session), 0x02 (Programming Session), 0x03 (Extended Diagnostic Session)
     requested_session = pdu[1]
+    if requested_session not in (0x01, 0x02, 0x03):
+        return build_negative_response(DIAGNOSTIC_SESSION_CONTROL, NRC_SUBFUNCTION_NOT_SUPPORTED)
+    
+    # Build positive response:
     return build_positive_response(DIAGNOSTIC_SESSION_CONTROL, bytes([requested_session]))
 
 
-def main(host: str = 'localhost', port: int = 13400) -> None:
+def main(host: str = "127.0.0.1", port: int = 13400) -> None:
        
         #Create a UDP socket(IPv4 + UDP)
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
