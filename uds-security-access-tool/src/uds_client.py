@@ -71,7 +71,7 @@ class UDSClient:
             return UDSResponse(False, 0x00, b"", nrc=0x13)
 
         # Negative response: [0x7F][original SID][NRC]
-        if data[0] == NEGATIVE_RESPONSE_SID:
+        if data[0] == NEGATIVE_RESPONSE:
             if len(data) != 3:
                 return UDSResponse(False, 0x00, b"", nrc=0x13)
             return UDSResponse(False, sid=data[1], payload=b"", nrc=data[2])
@@ -84,7 +84,7 @@ class UDSClient:
         UDS 0x10: request diagnostic session.
         Request:  [0x10][sessionType]
         """
-        pdu = bytes([SID_DIAGNOSTIC_SESSION_CONTROL, session_type & 0xFF])
+        pdu = bytes([DIAGNOSTIC_SESSION_CONTROL, session_type & 0xFF])
         return self.send_and_recv(pdu)
 
 
