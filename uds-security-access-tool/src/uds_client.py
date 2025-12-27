@@ -118,18 +118,21 @@ def main() -> None:
     if args.seed:
         resp = client.security_access(level=1)
         print(resp)
+
+        if resp.ok and len(resp.payload) >= 1:
+            sub_function = resp.payload[0]
+            seed = resp.payload[1:]
+            print(f"Seed sub_function: 0x{sub_function:02X}, seed: {seed.hex()}")
         return
     
-    if args.session:
+    if args.session is not None:
         resp = client.diagnostic_session_control(args.session)
         print(resp)
 
-    if resp.ok and len(resp.payload) > 0:
-        sub_function = resp.payload[0]
-        print(f"Session switched to 0x{sub_function:02X}")
-        
-        seed = resp.payload[1:]
-        print(f"Seed sub_function: 0x{sub_function:02X}, seed: {seed.hex()}")
+        if resp.ok and len(resp.payload) >= 1:
+            session = resp.payload[0]
+            print(f"Session switched to 0x{session:02X}")
+           
 
 if __name__ == "__main__":
     main()
