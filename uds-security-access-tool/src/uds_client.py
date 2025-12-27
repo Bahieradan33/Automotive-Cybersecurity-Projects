@@ -18,7 +18,8 @@ import argparse
 from dataclasses import dataclass   
 
 # Constants for UDS services
-DIAGNOSTIC_SESSION_CONTROL = 0x10   
+DIAGNOSTIC_SESSION_CONTROL = 0x10
+SECURITY_ACCESS = 0x27   
 POSITIVE_RESPONSE_OFFSET = 0x40
 NEGATIVE_RESPONSE = 0x7F
 
@@ -67,7 +68,7 @@ class UDSClient:
         data, _ = self.sock.recvfrom(4096)
 
         if len(data) < 1:
-            # malformed
+            # Malformed response
             return UDSResponse(False, 0x00, b"", nrc=0x13)
 
         # Negative response: [0x7F][original SID][NRC]
@@ -85,6 +86,14 @@ class UDSClient:
         Request:  [0x10][sessionType]
         """
         pdu = bytes([DIAGNOSTIC_SESSION_CONTROL, session_type & 0xFF])
+        return self.send_and_recv(pdu)
+
+    def security_access(self, sub_function: int, key: bytes = b"") -> UDSResponse:
+        """
+        UDS 0x27: request security access.
+        Request:  [0x27][subFunction][key...]
+        """
+        pdu = bytes([SECURITY_ACCESS, sub_function & 0xFF]) + key
         return self.send_and_recv(pdu)
 
 
