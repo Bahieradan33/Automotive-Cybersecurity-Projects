@@ -88,12 +88,18 @@ class UDSClient:
         pdu = bytes([DIAGNOSTIC_SESSION_CONTROL, session_type & 0xFF])
         return self.send_and_recv(pdu)
 
-    def security_access(self, sub_function: int, key: bytes = b"") -> UDSResponse:
+    def security_access(self, level: int = 1) -> UDSResponse:
         """
         UDS 0x27: request security access.
-        Request:  [0x27][subFunction][key...]
-        """
-        pdu = bytes([SECURITY_ACCESS, sub_function & 0xFF]) + key
+        level 1 seed request:  [0x27][0x01]
+
+        """ 
+        #   level 1 -> 0x01
+        #   level 2 -> 0x03
+        #   level 3 -> 0x05
+        # This is the sequence of odd numbers, so we compute: level * 2 - 1
+        sub_function = (level * 2) - 1  
+        pdu = bytes([SECURITY_ACCESS, sub_function & 0xFF]) #+ key
         return self.send_and_recv(pdu)
 
 
@@ -101,13 +107,29 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="UDS client (UDP demo)")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=13400)
-    parser.add_argument("--session", type=lambda x: int(x, 0), required=True, help="e.g. 0x03")
+
+    serivce_group = parser.add_mutually_exclusive_group(required=True)
+    serivce_group.add_argument("--session", type=lambda x: int(x, 0), help="e.g. 0x03")
+    serivce_group.add_argument("--seed", action="store_true", help="Request security access seed")
     args = parser.parse_args()
 
     client = UDSClient(args.host, args.port)
-    resp = client.diagnostic_session_control(args.session)
-    print(resp)
 
+    if args.seed:
+        resp = client.security_access(level=1)
+        print(resp)
+        return
+    
+    if args.session:
+        resp = client.diagnostic_session_control(args.session)
+        print(resp)
+
+    if resp.ok and len(resp.payload) > 0:
+        sub_function = resp.payload[0]
+        print(f"Session switched to 0x{sub_function:02X}")
+        
+        seed = resp.payload[1:]
+        print(f"Seed sub_function: 0x{sub_function:02X}, seed: {seed.hex()}")
 
 if __name__ == "__main__":
     main()

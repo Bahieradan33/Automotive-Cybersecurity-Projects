@@ -15,11 +15,13 @@ Notes from author:
  """
 
 from __future__ import annotations
+from .security_access import generate_seed
 
 import socket
 
 # Constants for UDS services
 DIAGNOSTIC_SESSION_CONTROL = 0x10
+SECURITY_ACCESS = 0x27
 POSITIVE_RESPONSE_OFFSET = 0x40
 NEGATIVE_RESPONSE = 0x7F
 
@@ -27,6 +29,9 @@ NEGATIVE_RESPONSE = 0x7F
 NRC_SERVICE_NOT_SUPPORTED = 0x11
 NRC_SUBFUNCTION_NOT_SUPPORTED = 0x12
 NRC_INCORRECT_MESSAGE_LENGTH_OR_INVALID_FORMAT = 0x13
+
+# Security Access related constants
+SEED_length = 4  # bytes
 
 
 def build_positive_response(orginal_sid: int, payload: bytes = b"") -> bytes:
@@ -45,30 +50,49 @@ def build_negative_response(orginal_sid: int, nrc: int) -> bytes:
 
 def handle_pdu(pdu: bytes) -> bytes:
     """
-    Handle incoming UDS PDU and return appropriate response PDU.
-    Currently supports only Diagnostic Session Control (0x10).
+    Handle incoming UDS PDU (Protocol Data Unit) and return appropriate response PDU.
+    - 0x10 (Diagnostic Session Control)
+    - 0x27 (Security Access) seed request only
     """
     if len(pdu) == 0:
         return build_negative_response(0x00, NRC_INCORRECT_MESSAGE_LENGTH_OR_INVALID_FORMAT)
 
     sid = pdu[0]
 
-    # Handle Diagnostic Session Control (0x10)
-    if sid != DIAGNOSTIC_SESSION_CONTROL:
-        # For simplicity, accept any sub-function and respond positively
-        return build_negative_response(sid, NRC_SERVICE_NOT_SUPPORTED)
-  
+    # --------Diagnostic Session Control (0x10)--------
+    if sid == DIAGNOSTIC_SESSION_CONTROL:
     # If message length is incorrect for known services, respond accordingly 
-    if len(pdu) != 2:
-        return build_negative_response(sid, NRC_INCORRECT_MESSAGE_LENGTH_OR_INVALID_FORMAT)
+        if len(pdu) != 2:
+            return build_negative_response(sid, NRC_INCORRECT_MESSAGE_LENGTH_OR_INVALID_FORMAT)
 
     #Accept common sub-functions: 0x01 (Default Session), 0x02 (Programming Session), 0x03 (Extended Diagnostic Session)
-    requested_session = pdu[1]
-    if requested_session not in (0x01, 0x02, 0x03):
-        return build_negative_response(DIAGNOSTIC_SESSION_CONTROL, NRC_SUBFUNCTION_NOT_SUPPORTED)
+        requested_session = pdu[1]
+        if requested_session not in (0x01, 0x02, 0x03):
+            return build_negative_response(DIAGNOSTIC_SESSION_CONTROL, NRC_SUBFUNCTION_NOT_SUPPORTED)
+
+        # Build positive response:
+        return build_positive_response(DIAGNOSTIC_SESSION_CONTROL, bytes([requested_session]))
     
-    # Build positive response:
-    return build_positive_response(DIAGNOSTIC_SESSION_CONTROL, bytes([requested_session]))
+    # --------Security Access (0x27) Seed Request-------- 
+    if sid == SECURITY_ACCESS:
+        # If message length is incorrect for known services, respond accordingly 
+        if len(pdu) != 2:
+            return build_negative_response(sid, NRC_INCORRECT_MESSAGE_LENGTH_OR_INVALID_FORMAT)
+        
+        sub_function = pdu[1]
+        #level 1 seed request
+        if sub_function != 0x01:
+            return build_negative_response(SECURITY_ACCESS, NRC_SUBFUNCTION_NOT_SUPPORTED) 
+
+        # Generate and return seed
+        seed = generate_seed(SEED_length)
+
+        # Build positive response:
+        # 0x27 + 0x40 = 0x67, payload: [sub_function][seed...]
+        return build_positive_response(SECURITY_ACCESS, seed)
+    
+    # Unsupported service
+    return build_negative_response(sid, NRC_SERVICE_NOT_SUPPORTED)
 
 
 def main(host: str = "127.0.0.1", port: int = 13400) -> None:
