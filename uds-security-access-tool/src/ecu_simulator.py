@@ -89,7 +89,7 @@ def handle_pdu(pdu: bytes) -> bytes:
 
         # Build positive response:
         # 0x27 + 0x40 = 0x67, payload: [sub_function][seed...]
-        return build_positive_response(SECURITY_ACCESS, seed)
+        return build_positive_response(SECURITY_ACCESS, bytes([sub_function]) + seed)
     
     # Unsupported service
     return build_negative_response(sid, NRC_SERVICE_NOT_SUPPORTED)
@@ -108,7 +108,6 @@ def main(host: str = "127.0.0.1", port: int = 13400) -> None:
         while True:
             data, addr = sock.recvfrom(4096) 
             print(f"Received message from {addr}: {data.hex()}")
-
 
             response = handle_pdu(data)
             sock.sendto(response, addr)
