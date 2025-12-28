@@ -15,7 +15,7 @@ Notes from author:
  """
 
 from __future__ import annotations
-from .security_access import generate_seed
+from .security_access import generate_seed, derive_key_hmac_sha256, constant_time_compare
 
 import socket
 
@@ -23,30 +23,37 @@ import socket
 DIAGNOSTIC_SESSION_CONTROL = 0x10
 SECURITY_ACCESS = 0x27
 POSITIVE_RESPONSE_OFFSET = 0x40
-NEGATIVE_RESPONSE = 0x7F
+NEGATIVE_RESPONSE_SID = 0x7F
 
 #Negative Response Codes
 NRC_SERVICE_NOT_SUPPORTED = 0x11
 NRC_SUBFUNCTION_NOT_SUPPORTED = 0x12
 NRC_INCORRECT_MESSAGE_LENGTH_OR_INVALID_FORMAT = 0x13
+NRC_REQUEST_SEQUENCE_ERROR = 0x24
+NRC_INVALID_KEY = 0x35
 
 # Security Access related constants
-SEED_length = 4  # bytes
+HMAC_SECRET = b"SecretKey"  # Example secret for HMAC
+SEED_LENGTH = 4  # bytes
+KEY_LENGTH = 4   # bytes
 
+#Store last seed issued for security access
+CLIENT_LAST_SEED: dict[tuple[str, int], bytes] = {} 
+CLIENT_UNLOCKED: dict[tuple[str, int], bool] = {}
 
-def build_positive_response(orginal_sid: int, payload: bytes = b"") -> bytes:
+def build_positive_response(original_sid: int, payload: bytes = b"") -> bytes:
     """
     Build positive response service ID
-    [orginal SID + 0x40][payload...]
+    [original SID + 0x40][payload...]
     """ 
-    return bytes([(orginal_sid + POSITIVE_RESPONSE_OFFSET) & 0xFF]) + payload  
+    return bytes([(original_sid + POSITIVE_RESPONSE_OFFSET) & 0xFF]) + payload  
 
-def build_negative_response(orginal_sid: int, nrc: int) -> bytes:
+def build_negative_response(original_sid: int, nrc: int) -> bytes:
     """
     Build negative response message
-    [0x7F][orginal SID][NRC]
+    [0x7F][original SID][NRC]
     """
-    return bytes([NEGATIVE_RESPONSE, orginal_sid & 0xFF, nrc & 0xFF])
+    return bytes([NEGATIVE_RESPONSE_SID, original_sid & 0xFF, nrc & 0xFF])
 
 def handle_pdu(pdu: bytes) -> bytes:
     """
@@ -85,7 +92,7 @@ def handle_pdu(pdu: bytes) -> bytes:
             return build_negative_response(SECURITY_ACCESS, NRC_SUBFUNCTION_NOT_SUPPORTED) 
 
         # Generate and return seed
-        seed = generate_seed(SEED_length)
+        seed = generate_seed(SEED_LENGTH)
 
         # Build positive response:
         # 0x27 + 0x40 = 0x67, payload: [sub_function][seed...]

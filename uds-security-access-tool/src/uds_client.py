@@ -24,7 +24,7 @@ POSITIVE_RESPONSE_OFFSET = 0x40
 NEGATIVE_RESPONSE = 0x7F
 
 #Negative Response Codes map
-NRC_map = {
+NRC_MAP = {
     0x11: "Service Not Supported",
     0x12: "Sub-function Not Supported",
     0x13: "Incorrect Message Length or Invalid Format",
@@ -46,7 +46,7 @@ class UDSResponse:
     def __str__(self) -> str:
         if self.ok:
             return f"UDSResponse(ok=True, sid=0x{self.sid:02X}, payload={self.payload.hex()})"
-        nrc_name = NRC_map.get(self.nrc or 0x00, "UnknownNRC")
+        nrc_name = NRC_MAP.get(self.nrc or 0x00, "UnknownNRC")
         return f"UDSResponse(ok=False, sid=0x{self.sid:02X}, nrc=0x{self.nrc:02X}({nrc_name}))"
     
 
@@ -108,9 +108,9 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=13400)
 
-    serivce_group = parser.add_mutually_exclusive_group(required=True)
-    serivce_group.add_argument("--session", type=lambda x: int(x, 0), help="e.g. 0x03")
-    serivce_group.add_argument("--seed", action="store_true", help="Request security access seed")
+    service_group = parser.add_mutually_exclusive_group(required=True)
+    service_group.add_argument("--session", type=lambda x: int(x, 0), help="e.g. 0x03")
+    service_group.add_argument("--seed", action="store_true", help="Request security access seed")
     args = parser.parse_args()
 
     client = UDSClient(args.host, args.port)
