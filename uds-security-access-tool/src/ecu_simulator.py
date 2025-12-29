@@ -55,7 +55,7 @@ def build_negative_response(original_sid: int, nrc: int) -> bytes:
     """
     return bytes([NEGATIVE_RESPONSE_SID, original_sid & 0xFF, nrc & 0xFF])
 
-def handle_pdu(pdu: bytes) -> bytes:
+def handle_pdu(pdu: bytes, addr: tuple[str, int]) -> bytes:
     """
     Handle incoming UDS PDU (Protocol Data Unit) and return appropriate response PDU.
     - 0x10 (Diagnostic Session Control)
@@ -68,11 +68,11 @@ def handle_pdu(pdu: bytes) -> bytes:
 
     # --------Diagnostic Session Control (0x10)--------
     if sid == DIAGNOSTIC_SESSION_CONTROL:
-    # If message length is incorrect for known services, respond accordingly 
+        # If message length is incorrect for known services, respond accordingly 
         if len(pdu) != 2:
             return build_negative_response(sid, NRC_INCORRECT_MESSAGE_LENGTH_OR_INVALID_FORMAT)
 
-    #Accept common sub-functions: 0x01 (Default Session), 0x02 (Programming Session), 0x03 (Extended Diagnostic Session)
+        #Accept common sub-functions: 0x01 (Default Session), 0x02 (Programming Session), 0x03 (Extended Diagnostic Session)
         requested_session = pdu[1]
         if requested_session not in (0x01, 0x02, 0x03):
             return build_negative_response(DIAGNOSTIC_SESSION_CONTROL, NRC_SUBFUNCTION_NOT_SUPPORTED)
@@ -83,21 +83,50 @@ def handle_pdu(pdu: bytes) -> bytes:
     # --------Security Access (0x27) Seed Request-------- 
     if sid == SECURITY_ACCESS:
         # If message length is incorrect for known services, respond accordingly 
-        if len(pdu) != 2:
+        if len(pdu) < 2:
             return build_negative_response(sid, NRC_INCORRECT_MESSAGE_LENGTH_OR_INVALID_FORMAT)
         
         sub_function = pdu[1]
         #level 1 seed request
-        if sub_function != 0x01:
-            return build_negative_response(SECURITY_ACCESS, NRC_SUBFUNCTION_NOT_SUPPORTED) 
+        #0x02 =sendkey
+        if sub_function == 0x01:
+            if len(pdu) != 2:
+                return build_negative_response(SECURITY_ACCESS, NRC_INCORRECT_MESSAGE_LENGTH_OR_INVALID_FORMAT) 
 
-        # Generate and return seed
-        seed = generate_seed(SEED_LENGTH)
+            # Generate and return seed
+            seed = generate_seed(SEED_LENGTH)
+            CLIENT_LAST_SEED[addr] = seed
+            CLIENT_UNLOCKED[addr] = False
 
-        # Build positive response:
-        # 0x27 + 0x40 = 0x67, payload: [sub_function][seed...]
-        return build_positive_response(SECURITY_ACCESS, bytes([sub_function]) + seed)
+            # Build positive response:
+            # 0x27 + 0x40 = 0x67, payload: [sub_function][seed...]
+            return build_positive_response(SECURITY_ACCESS, bytes([sub_function]) + seed)
     
+        if sub_function == 0x02:
+            #Expected length: 2 + KEY_LENGTH - [0x27][0x02][key...]
+            length_required = 2 + KEY_LENGTH
+            if len(pdu) != length_required:
+                return build_negative_response(SECURITY_ACCESS, NRC_INCORRECT_MESSAGE_LENGTH_OR_INVALID_FORMAT)
+            
+            if addr not in CLIENT_LAST_SEED:
+                # No seed was issued to this client
+                return build_negative_response(SECURITY_ACCESS, NRC_REQUEST_SEQUENCE_ERROR)
+            
+            seed = CLIENT_LAST_SEED[addr]
+            received_key = pdu[2:2 + KEY_LENGTH]
+            expected_key = derive_key_hmac_sha256(seed, HMAC_SECRET, length =KEY_LENGTH)
+
+            if not constant_time_compare(received_key, expected_key):
+                return build_negative_response(SECURITY_ACCESS, NRC_INVALID_KEY)
+            
+            CLIENT_UNLOCKED[addr] = True
+            # clean up stored seed after successful unlock
+            del CLIENT_LAST_SEED[addr]
+
+            # Build positive response:
+            # 0x27 + 0x40 = 0x67, payload: [sub_function]
+            return build_positive_response(SECURITY_ACCESS, bytes([sub_function]))
+
     # Unsupported service
     return build_negative_response(sid, NRC_SERVICE_NOT_SUPPORTED)
 
@@ -116,7 +145,7 @@ def main(host: str = "127.0.0.1", port: int = 13400) -> None:
             data, addr = sock.recvfrom(4096) 
             print(f"Received message from {addr}: {data.hex()}")
 
-            response = handle_pdu(data)
+            response = handle_pdu(data, addr)
             sock.sendto(response, addr)
             print(f"Sent response to {addr}: {response.hex()}")
 
