@@ -114,7 +114,7 @@ def handle_pdu(pdu: bytes, addr: tuple[str, int]) -> bytes:
             
             seed = CLIENT_LAST_SEED[addr]
             received_key = pdu[2:2 + KEY_LENGTH]
-            expected_key = derive_key_hmac_sha256(seed, HMAC_SECRET, length =KEY_LENGTH)
+            expected_key = derive_key_hmac_sha256(seed, HMAC_SECRET, out_length = KEY_LENGTH)
 
             if not constant_time_compare(received_key, expected_key):
                 return build_negative_response(SECURITY_ACCESS, NRC_INVALID_KEY)

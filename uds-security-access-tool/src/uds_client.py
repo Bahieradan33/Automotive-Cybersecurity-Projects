@@ -140,7 +140,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="UDS client (UDP demo)")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=13400)
-    parser.add_argument("--secret", default="HMAC_SECRET", help="Secret key for HMAC-SHA256")
+    parser.add_argument("--secret", default="SecretKey", help="Secret key for HMAC-SHA256")
 
     service_group = parser.add_mutually_exclusive_group(required=True)
     service_group.add_argument("--session", type=lambda x: int(x, 0), help="e.g. 0x03")
