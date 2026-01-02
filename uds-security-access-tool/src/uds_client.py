@@ -129,9 +129,8 @@ class UDSClient:
         """
         seed_resp = self.security_access_request_seed(level=1)
         if (not seed_resp.ok) or (len(seed_resp.payload) < 1 + KEY_LENGTH):
-            return seed_resp  # return error response
+            return seed_resp, seed_resp  # return error response
 
-        sub_function = seed_resp.payload[0]
         seed = seed_resp.payload[1:]  # first byte is sub_function
         derived_key = derive_key_hmac_sha256(seed, secret, out_length=KEY_LENGTH)
         key_resp = self.security_access_send_key(level=1, key=derived_key)
