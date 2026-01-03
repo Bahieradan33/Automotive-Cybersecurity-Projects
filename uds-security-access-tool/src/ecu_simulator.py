@@ -18,6 +18,7 @@ from __future__ import annotations
 from .security_access import generate_seed, derive_key_hmac_sha256, constant_time_compare
 
 import socket
+import time
 
 # Constants for UDS services
 DIAGNOSTIC_SESSION_CONTROL = 0x10
@@ -31,15 +32,23 @@ NRC_SUBFUNCTION_NOT_SUPPORTED = 0x12
 NRC_INCORRECT_MESSAGE_LENGTH_OR_INVALID_FORMAT = 0x13
 NRC_REQUEST_SEQUENCE_ERROR = 0x24
 NRC_INVALID_KEY = 0x35
+NRC_EXCEEDED_NUMBER_OF_ATTEMPTS = 0x36
+NRC_REQUIRED_TIME_DELAY_NOT_EXPIRED = 0x37
 
 # Security Access related constants
 HMAC_SECRET = b"SecretKey"  # Example secret for HMAC
 SEED_LENGTH = 4  # bytes
 KEY_LENGTH = 4   # bytes
 
+#Lockout management
+MAX_ATTEMPTS = 3
+LOCKOUT_DURATION_S = 10
+CLIENT_ATTEMPTS: dict[str, int] = {}
+CLIENT_LOCKOUT_UNTIL: dict[str, float] = {}
+
 #Store last seed issued for security access
-CLIENT_LAST_SEED: dict[tuple[str, int], bytes] = {} 
-CLIENT_UNLOCKED: dict[tuple[str, int], bool] = {}
+CLIENT_LAST_SEED: dict[str, bytes] = {} 
+CLIENT_UNLOCKED: dict[str, bool] = {}
 
 def build_positive_response(original_sid: int, payload: bytes = b"") -> bytes:
     """
@@ -55,6 +64,20 @@ def build_negative_response(original_sid: int, nrc: int) -> bytes:
     """
     return bytes([NEGATIVE_RESPONSE_SID, original_sid & 0xFF, nrc & 0xFF])
 
+def client_key(addr: tuple[str, int]) -> str:
+    """
+    Identify client by iP address only.)
+    Since UDP source ports chnae between programs.
+    """
+    return addr[0]
+
+def is_client_locked_out(client: str) -> bool:
+    """
+    Check if the client is currently locked out due to too many failed attempts.
+    """                                                     
+    until = CLIENT_LOCKOUT_UNTIL.get(client, 0)
+    return time.time() < until
+
 def handle_pdu(pdu: bytes, addr: tuple[str, int]) -> bytes:
     """
     Handle incoming UDS PDU (Protocol Data Unit) and return appropriate response PDU.
@@ -65,6 +88,7 @@ def handle_pdu(pdu: bytes, addr: tuple[str, int]) -> bytes:
         return build_negative_response(0x00, NRC_INCORRECT_MESSAGE_LENGTH_OR_INVALID_FORMAT)
 
     sid = pdu[0]
+    client = client_key(addr)
 
     # --------Diagnostic Session Control (0x10)--------
     if sid == DIAGNOSTIC_SESSION_CONTROL:
@@ -82,6 +106,10 @@ def handle_pdu(pdu: bytes, addr: tuple[str, int]) -> bytes:
     
     # --------Security Access (0x27) Seed Request-------- 
     if sid == SECURITY_ACCESS:
+        # Check for lockout
+        if is_client_locked_out(client):
+            return build_negative_response(SECURITY_ACCESS, NRC_REQUIRED_TIME_DELAY_NOT_EXPIRED)
+        
         # If message length is incorrect for known services, respond accordingly 
         if len(pdu) < 2:
             return build_negative_response(sid, NRC_INCORRECT_MESSAGE_LENGTH_OR_INVALID_FORMAT)
@@ -95,9 +123,9 @@ def handle_pdu(pdu: bytes, addr: tuple[str, int]) -> bytes:
 
             # Generate and return seed
             seed = generate_seed(SEED_LENGTH)
-            CLIENT_LAST_SEED[addr] = seed
-            CLIENT_UNLOCKED[addr] = False
-
+            CLIENT_LAST_SEED[client] = seed
+            CLIENT_UNLOCKED[client] = False
+            CLIENT_ATTEMPTS.setdefault(client, 0)
             # Build positive response:
             # 0x27 + 0x40 = 0x67, payload: [sub_function][seed...]
             return build_positive_response(SECURITY_ACCESS, bytes([sub_function]) + seed)
@@ -108,21 +136,32 @@ def handle_pdu(pdu: bytes, addr: tuple[str, int]) -> bytes:
             if len(pdu) != length_required:
                 return build_negative_response(SECURITY_ACCESS, NRC_INCORRECT_MESSAGE_LENGTH_OR_INVALID_FORMAT)
             
-            if addr not in CLIENT_LAST_SEED:
+            if client not in CLIENT_LAST_SEED:
                 # No seed was issued to this client
                 return build_negative_response(SECURITY_ACCESS, NRC_REQUEST_SEQUENCE_ERROR)
             
-            seed = CLIENT_LAST_SEED[addr]
+            seed = CLIENT_LAST_SEED[client]
             received_key = pdu[2:2 + KEY_LENGTH]
             expected_key = derive_key_hmac_sha256(seed, HMAC_SECRET, out_length = KEY_LENGTH)
 
             if not constant_time_compare(received_key, expected_key):
-                return build_negative_response(SECURITY_ACCESS, NRC_INVALID_KEY)
-            
-            CLIENT_UNLOCKED[addr] = True
-            # clean up stored seed after successful unlock
-            del CLIENT_LAST_SEED[addr]
+                # Increment failed attempts
+                attempts = CLIENT_ATTEMPTS.get(client, 0) + 1
+                CLIENT_ATTEMPTS[client] = attempts
+                print(f"[SEC] invalid key from {addr}, attempts={attempts}") #debug print
 
+                if attempts >= MAX_ATTEMPTS:
+                    CLIENT_LOCKOUT_UNTIL[client] = time.time() + LOCKOUT_DURATION_S
+                    return build_negative_response(SECURITY_ACCESS, NRC_EXCEEDED_NUMBER_OF_ATTEMPTS)
+
+                return build_negative_response(SECURITY_ACCESS, NRC_INVALID_KEY)
+
+            CLIENT_UNLOCKED[client] = True
+            # clean up stored seed after successful unlock
+            del CLIENT_LAST_SEED[client]
+            # clear failed attempts
+            CLIENT_ATTEMPTS[client] = 0
+            CLIENT_LOCKOUT_UNTIL.pop(client, None)
             # Build positive response:
             # 0x27 + 0x40 = 0x67, payload: [sub_function]
             return build_positive_response(SECURITY_ACCESS, bytes([sub_function]))
