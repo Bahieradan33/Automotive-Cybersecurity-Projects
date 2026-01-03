@@ -148,7 +148,6 @@ def handle_pdu(pdu: bytes, addr: tuple[str, int]) -> bytes:
                 # Increment failed attempts
                 attempts = CLIENT_ATTEMPTS.get(client, 0) + 1
                 CLIENT_ATTEMPTS[client] = attempts
-                print(f"[SEC] invalid key from {addr}, attempts={attempts}") #debug print
 
                 if attempts >= MAX_ATTEMPTS:
                     CLIENT_LOCKOUT_UNTIL[client] = time.time() + LOCKOUT_DURATION_S
