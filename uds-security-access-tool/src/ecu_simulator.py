@@ -25,11 +25,13 @@ DIAGNOSTIC_SESSION_CONTROL = 0x10
 SECURITY_ACCESS = 0x27
 POSITIVE_RESPONSE_OFFSET = 0x40
 NEGATIVE_RESPONSE_SID = 0x7F
+CURRENT_SESSION = 0x01  # Default session
 
 #Negative Response Codes
 NRC_SERVICE_NOT_SUPPORTED = 0x11
 NRC_SUBFUNCTION_NOT_SUPPORTED = 0x12
 NRC_INCORRECT_MESSAGE_LENGTH_OR_INVALID_FORMAT = 0x13
+NRC_CONDITIONS_NOT_CORRECT = 0x22
 NRC_REQUEST_SEQUENCE_ERROR = 0x24
 NRC_INVALID_KEY = 0x35
 NRC_EXCEEDED_NUMBER_OF_ATTEMPTS = 0x36
@@ -101,6 +103,9 @@ def handle_pdu(pdu: bytes, addr: tuple[str, int]) -> bytes:
         if requested_session not in (0x01, 0x02, 0x03):
             return build_negative_response(DIAGNOSTIC_SESSION_CONTROL, NRC_SUBFUNCTION_NOT_SUPPORTED)
 
+        global CURRENT_SESSION
+        CURRENT_SESSION = requested_session
+    
         # Build positive response:
         return build_positive_response(DIAGNOSTIC_SESSION_CONTROL, bytes([requested_session]))
     
@@ -109,6 +114,10 @@ def handle_pdu(pdu: bytes, addr: tuple[str, int]) -> bytes:
         # Check for lockout
         if is_client_locked_out(client):
             return build_negative_response(SECURITY_ACCESS, NRC_REQUIRED_TIME_DELAY_NOT_EXPIRED)
+        
+        # Security access only allowed in Extended Diagnostic Session
+        if CURRENT_SESSION != 0x03:
+            return build_negative_response(SECURITY_ACCESS, NRC_CONDITIONS_NOT_CORRECT)
         
         # If message length is incorrect for known services, respond accordingly 
         if len(pdu) < 2:
