@@ -89,6 +89,13 @@ class UDSClient:
         """
         pdu = bytes([DIAGNOSTIC_SESSION_CONTROL, session_type & 0xFF])
         return self.send_and_recv(pdu)
+    
+    def ensure_extended_session(self) -> UDSResponse:
+        """
+        Ensure the ECU is in Extended Diagnostic Session (0x03).
+        If not, switch to it.
+        """
+        return self.diagnostic_session_control(0x03) 
 
     def security_access_request_seed(self, level: int = 1) -> UDSResponse:
         """
@@ -162,7 +169,16 @@ def main() -> None:
         return
     
     if args.unlock:
+
+        #Switch to extended session (0x03) first
+        session_resp = client.ensure_extended_session()
+        print("Session Response:", session_resp)
+
+        if not session_resp.ok:
+            print("Failed to switch to Extended Diagnostic Session.")
+            return
         
+        #Seed ->derive key -> send key
         seed_resp, key_resp = client.security_access_unlock_lvl1(secret_bytes)
         print("Seed Response:", seed_resp)
         print("Key Response:", key_resp)
