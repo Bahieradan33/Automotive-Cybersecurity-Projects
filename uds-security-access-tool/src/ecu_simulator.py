@@ -25,6 +25,8 @@ DIAGNOSTIC_SESSION_CONTROL = 0x10
 SECURITY_ACCESS = 0x27
 POSITIVE_RESPONSE_OFFSET = 0x40
 NEGATIVE_RESPONSE_SID = 0x7F
+
+# ECU state
 CURRENT_SESSION = 0x01  # Default session
 
 #Negative Response Codes
@@ -52,6 +54,17 @@ CLIENT_LOCKOUT_UNTIL: dict[str, float] = {}
 CLIENT_LAST_SEED: dict[str, bytes] = {} 
 CLIENT_UNLOCKED: dict[str, bool] = {}
 
+def reset_state() -> None:
+    """
+    Reset ECU module state.(useful for unit testing)
+    """
+    global CURRENT_SESSION
+    CURRENT_SESSION = 0x01  # Default session
+    CLIENT_ATTEMPTS.clear()
+    CLIENT_LOCKOUT_UNTIL.clear()
+    CLIENT_LAST_SEED.clear()
+    CLIENT_UNLOCKED.clear()
+
 def build_positive_response(original_sid: int, payload: bytes = b"") -> bytes:
     """
     Build positive response service ID
@@ -68,8 +81,8 @@ def build_negative_response(original_sid: int, nrc: int) -> bytes:
 
 def client_key(addr: tuple[str, int]) -> str:
     """
-    Identify client by iP address only.)
-    Since UDP source ports chnae between programs.
+    Identify client by iP address only.
+    Since UDP source ports chnae between programsm, so (IP,port) would break attempts tracking.
     """
     return addr[0]
 
@@ -77,7 +90,7 @@ def is_client_locked_out(client: str) -> bool:
     """
     Check if the client is currently locked out due to too many failed attempts.
     """                                                     
-    until = CLIENT_LOCKOUT_UNTIL.get(client, 0)
+    until = CLIENT_LOCKOUT_UNTIL.get(client, 0.0)
     return time.time() < until
 
 def handle_pdu(pdu: bytes, addr: tuple[str, int]) -> bytes:
