@@ -3,7 +3,7 @@
 
 This repository contains a collection of practical, hands-on automotive cybersecurity projects developed to demonstrate skills across vehicle networking, diagnostics, threat modelling, embedded security, and automotive communication protocols.
 
-These projects showcase real-world cybersecurity techniques used in modern vehicles and are highly relevant to roles in:
+These projects are highly relevant to roles in:
 
 * Automotive Cybersecurity Engineering
 
@@ -22,31 +22,44 @@ Each project is self-contained and includes documentation, code, and example out
 📁 Projects Included
 -----------------------------------------------------------------
 1. UDS Security Access Tool
+   STATUS: Completed ✅
 
-A Python implementation of UDS diagnostic routines, including the 0x27 Security Access challenge–response mechanism. Shows understanding of ECU security, diagnostics, and brute-force protection techniques.
+A Python implementation of key UDS routines over UDP, including:
+- 0x10 Diagnostic Session Control
+- 0x27 SecurityAccess (Seed/Key) Level 1
+- Lockout & brute-force protections (NRC 0x35/0x36/0x37)
+- Session restriction for SecurityAccess (NRC 0x22)
+  
+Shows understanding of ECU security, diagnostics, and brute-force protection techniques.
 
-Folder: uds-security-access/
+**Folder:** `uds-security-access-tool/`  
+**Docs:** See the project README inside the folder.
+---
 
  2. CAN Bus Intrusion Detection System (IDS)
-
+    STATUS: In Progress
+    
 A lightweight IDS that analyses CAN traffic logs and detects anomalies using statistical methods and simple ML-based techniques. Demonstrates vehicle network security fundamentals.
 
 Folder: can-bus-ids/
 
  3. DoIP ECU Discovery Tool
-
+    STATUS: Planned
+    
 A simple Diagnostics over IP (DoIP) scanner for discovering ECUs over automotive Ethernet and parsing diagnostic headers. Shows experience with modern automotive communication protocols.
 
 Folder: doip-scanner/
 
  4. SOME/IP Fuzzing Tool
-
+    STATUS: Planned
+    
 A Python-based fuzzer for SOME/IP, targeting service discovery and message structures. Useful for demonstrating automotive network security assessment techniques.
 
 Folder: someip-fuzzer/
 
  5. ISO 21434 TARA Example
-
+    STATUS: In Progress
+    
 A complete cybersecurity Threat Analysis & Risk Assessment (TARA) using the HEAVENS 2.0 methodology. Shows familiarity with cybersecurity processes and automotive standards.
 
 Folder: iso21434-tara/
@@ -65,7 +78,7 @@ Folder: iso21434-tara/
 * Basic ML for anomaly detection
   
 
-🎯 Goals of This Repository
+🎯 Goals 
 -----------------------------------------------------------------
 * Build a strong foundation in automotive cybersecurity
 
