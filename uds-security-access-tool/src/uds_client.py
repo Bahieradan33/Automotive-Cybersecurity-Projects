@@ -16,14 +16,14 @@ from __future__ import annotations
 import socket
 import argparse
 from dataclasses import dataclass 
-from .security_access import derive_key_hmac_sha256  
+from .security_access import derive_key_hmac_sha256, get_security_level_config   
 
 # Constants for UDS services
 DIAGNOSTIC_SESSION_CONTROL = 0x10
 SECURITY_ACCESS = 0x27   
 POSITIVE_RESPONSE_OFFSET = 0x40
 NEGATIVE_RESPONSE = 0x7F
-KEY_LENGTH = 4  # bytes
+
 
 #Negative Response Codes map
 NRC_MAP = {
@@ -100,47 +100,39 @@ class UDSClient:
     def security_access_request_seed(self, level: int = 1) -> UDSResponse:
         """
         UDS 0x27: request security access.
-        level 1 seed request:  [0x27][0x01]
 
         """ 
-        #   level 1 -> 0x01
-        #   level 2 -> 0x03
-        #   level 3 -> 0x05
-        # This is the sequence of odd numbers, so we compute: level * 2 - 1
-        sub_function = (level * 2) - 1
-        pdu = bytes([SECURITY_ACCESS, sub_function & 0xFF]) #+ key
+        config = get_security_level_config(level)
+        pdu = bytes([SECURITY_ACCESS, config.seed_subfunction]) 
         return self.send_and_recv(pdu)
 
     def security_access_send_key(self, level: int, key: bytes) -> UDSResponse:
         """
         UDS 0x27: send security access key.
-        level 1 send key:  [0x27][0x02][key...]
         """ 
-        if not key or len(key) != KEY_LENGTH:
-            raise ValueError(f"Key must be {KEY_LENGTH} bytes")
-        #   level 1 -> 0x02
-        #   level 2 -> 0x04 
-        #   level 3 -> 0x06
-        # This is the sequence of even numbers, so we compute: level * 2
-        sub_function = (level * 2) 
-        pdu = bytes([SECURITY_ACCESS, sub_function & 0xFF]) + key
+        config = get_security_level_config(level)
+        if not key or len(key) != config.key_length: 
+            raise ValueError(f"Key must be {config.key_length} bytes")
+       
+        pdu = bytes([SECURITY_ACCESS, config.key_subfunction]) + key
         return self.send_and_recv(pdu)
 
-    def security_access_unlock_lvl1(self, secret: bytes) -> tuple[UDSResponse, UDSResponse]:
+    def security_access_unlock(self, level: int, secret: bytes) -> tuple[UDSResponse, UDSResponse]:
         """
-        Full unlcock sequence for security level 1:
+        Full unlcock sequence for given security level:
         1. Request seed
         2. Derive key using HMAC-SHA256
         3. Send key
         Return both responses (seed response, key response)
         """
-        seed_resp = self.security_access_request_seed(level=1)
-        if (not seed_resp.ok) or (len(seed_resp.payload) < 1 + KEY_LENGTH):
+        config = get_security_level_config(level) 
+        seed_resp = self.security_access_request_seed(level=level)
+        if (not seed_resp.ok) or (len(seed_resp.payload) < 1 + config.seed_length):
             return seed_resp, seed_resp  # return error response
 
         seed = seed_resp.payload[1:]  # first byte is sub_function
-        derived_key = derive_key_hmac_sha256(seed, secret, out_length=KEY_LENGTH)
-        key_resp = self.security_access_send_key(level=1, key=derived_key)
+        derived_key = derive_key_hmac_sha256(seed, secret, out_length=config.key_length)
+        key_resp = self.security_access_send_key(level=level, key=derived_key)
         return seed_resp, key_resp
 
 def main() -> None:
@@ -148,18 +140,31 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=13400)
     parser.add_argument("--secret", default="SecretKey", help="Secret key for HMAC-SHA256")
+    parser.add_argument("--level", type=int, default=1, help="Security level (e.g., 1, 2)")
 
     service_group = parser.add_mutually_exclusive_group(required=True)
     service_group.add_argument("--session", type=lambda x: int(x, 0), help="e.g. 0x03")
     service_group.add_argument("--seed", action="store_true", help="Request security access seed")
-    service_group.add_argument("--unlock", action="store_true", help="Do seed request + key send for 27 01 and 27 02")    
+    service_group.add_argument("--unlock", action="store_true", help="Do seed request + key send for selected security level (e.g., L1: 27 01/02, L2: 27 03/04)")    
     args = parser.parse_args()
+
+    try:
+        get_security_level_config(args.level)
+    except ValueError as e:
+        print(e)
+        return
 
     client = UDSClient(args.host, args.port)
     secret_bytes = args.secret.encode("utf-8")
 
     if args.seed:
-        resp = client.security_access_request_seed(level=1)
+        session_resp = client.ensure_extended_session()
+        print("Session Response:", session_resp)
+        if not session_resp.ok:
+            print("Failed to switch to Extended Diagnostic Session.")
+            return
+        
+        resp = client.security_access_request_seed(level=args.level)
         print(resp)
 
         if resp.ok and len(resp.payload) >= 1:
@@ -179,14 +184,14 @@ def main() -> None:
             return
         
         #Seed ->derive key -> send key
-        seed_resp, key_resp = client.security_access_unlock_lvl1(secret_bytes)
+        seed_resp, key_resp = client.security_access_unlock(level=args.level, secret=secret_bytes)
         print("Seed Response:", seed_resp)
         print("Key Response:", key_resp)
 
         if key_resp.ok:
-            print("Security Level 1 unlocked successfully.")
+            print(f"Security Level {args.level} unlocked successfully.")
         else:
-            print("Failed to unlock Security Level 1.")
+            print(f"Failed to unlock Security Level {args.level}.")
         return
     
     

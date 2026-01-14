@@ -15,8 +15,12 @@ Notes from author:
  """
 
 from __future__ import annotations
-from .security_access import generate_seed, derive_key_hmac_sha256, constant_time_compare
-
+from .security_access import (
+    generate_seed, 
+    derive_key_hmac_sha256, 
+    constant_time_compare,
+    get_security_level_config,
+)
 import socket
 import time
 
@@ -41,8 +45,7 @@ NRC_REQUIRED_TIME_DELAY_NOT_EXPIRED = 0x37
 
 # Security Access related constants
 HMAC_SECRET = b"SecretKey"  # Example secret for HMAC
-SEED_LENGTH = 4  # bytes
-KEY_LENGTH = 4   # bytes
+
 
 #Lockout management
 MAX_ATTEMPTS = 3
@@ -50,9 +53,18 @@ LOCKOUT_DURATION_S = 10
 CLIENT_ATTEMPTS: dict[str, int] = {}
 CLIENT_LOCKOUT_UNTIL: dict[str, float] = {}
 
+# Map SecurityAccess subfunctions to (level, action)
+# odd = seed request, even = key send
+SUBFUNC_TO_LEVEL_ACTION: dict[int, tuple[int, str]] = {
+    0x01: (1, "seed"),
+    0x02: (1, "key"),
+    0x03: (2, "seed"),
+    0x04: (2, "key"),
+}
+
 #Store last seed issued for security access
-CLIENT_LAST_SEED: dict[str, bytes] = {} 
-CLIENT_UNLOCKED: dict[str, bool] = {}
+CLIENT_LAST_SEED: dict[str, tuple[int, bytes]] = {}
+CLIENT_UNLOCKED_LEVEL: dict[str, set[int]] = {}
 
 def reset_state() -> None:
     """
@@ -63,7 +75,7 @@ def reset_state() -> None:
     CLIENT_ATTEMPTS.clear()
     CLIENT_LOCKOUT_UNTIL.clear()
     CLIENT_LAST_SEED.clear()
-    CLIENT_UNLOCKED.clear()
+    CLIENT_UNLOCKED_LEVEL.clear()
 
 def build_positive_response(original_sid: int, payload: bytes = b"") -> bytes:
     """
@@ -137,24 +149,37 @@ def handle_pdu(pdu: bytes, addr: tuple[str, int]) -> bytes:
             return build_negative_response(sid, NRC_INCORRECT_MESSAGE_LENGTH_OR_INVALID_FORMAT)
         
         sub_function = pdu[1]
-        #level 1 seed request
-        #0x02 =sendkey
-        if sub_function == 0x01:
+        
+        level_action = SUBFUNC_TO_LEVEL_ACTION.get(sub_function)
+        if level_action is None:
+            return build_negative_response(SECURITY_ACCESS, NRC_SUBFUNCTION_NOT_SUPPORTED)
+        level, action = level_action
+        config = get_security_level_config(level)
+        # Seed request for selected security level
+        if action == "seed":
+            #Expected length: 2 bytes - [0x27][subfunction]
             if len(pdu) != 2:
                 return build_negative_response(SECURITY_ACCESS, NRC_INCORRECT_MESSAGE_LENGTH_OR_INVALID_FORMAT) 
 
             # Generate and return seed
-            seed = generate_seed(SEED_LENGTH)
-            CLIENT_LAST_SEED[client] = seed
-            CLIENT_UNLOCKED[client] = False
-            CLIENT_ATTEMPTS.setdefault(client, 0)
+            seed = generate_seed(config.seed_length)
+            CLIENT_LAST_SEED[client] = (level, seed)
+
+            # Do not wipe previous unlock history
+            CLIENT_UNLOCKED_LEVEL.setdefault(client, set())
+           
+            # IMPORTANT: Do NOT reset attempts or lockout on seed request
+            # (otherwise attacker can bypass lockout by requesting new seeds)
+            CLIENT_ATTEMPTS.setdefault(client, 0) 
             # Build positive response:
             # 0x27 + 0x40 = 0x67, payload: [sub_function][seed...]
-            return build_positive_response(SECURITY_ACCESS, bytes([sub_function]) + seed)
+            return build_positive_response(SECURITY_ACCESS, bytes([config.seed_subfunction]) + seed)
     
-        if sub_function == 0x02:
-            #Expected length: 2 + KEY_LENGTH - [0x27][0x02][key...]
-            length_required = 2 + KEY_LENGTH
+
+        # Seed request for selected security level
+        if action == "key":
+            #Expected length: 2 + key_length - [0x27][0x02][key...]
+            length_required = 2 + config.key_length
             if len(pdu) != length_required:
                 return build_negative_response(SECURITY_ACCESS, NRC_INCORRECT_MESSAGE_LENGTH_OR_INVALID_FORMAT)
             
@@ -162,9 +187,12 @@ def handle_pdu(pdu: bytes, addr: tuple[str, int]) -> bytes:
                 # No seed was issued to this client
                 return build_negative_response(SECURITY_ACCESS, NRC_REQUEST_SEQUENCE_ERROR)
             
-            seed = CLIENT_LAST_SEED[client]
-            received_key = pdu[2:2 + KEY_LENGTH]
-            expected_key = derive_key_hmac_sha256(seed, HMAC_SECRET, out_length = KEY_LENGTH)
+            last_level, seed = CLIENT_LAST_SEED[client]
+            if last_level != level:
+                # Seed was for different security level than the key attempt
+                return build_negative_response(SECURITY_ACCESS, NRC_REQUEST_SEQUENCE_ERROR)
+            received_key = pdu[2:2 + config.key_length]
+            expected_key = derive_key_hmac_sha256(seed, HMAC_SECRET, out_length = config.key_length)
 
             if not constant_time_compare(received_key, expected_key):
                 # Increment failed attempts
@@ -173,19 +201,20 @@ def handle_pdu(pdu: bytes, addr: tuple[str, int]) -> bytes:
 
                 if attempts >= MAX_ATTEMPTS:
                     CLIENT_LOCKOUT_UNTIL[client] = time.time() + LOCKOUT_DURATION_S
+                    CLIENT_LAST_SEED.pop(client, None)  # clear stored seed
                     return build_negative_response(SECURITY_ACCESS, NRC_EXCEEDED_NUMBER_OF_ATTEMPTS)
 
                 return build_negative_response(SECURITY_ACCESS, NRC_INVALID_KEY)
 
-            CLIENT_UNLOCKED[client] = True
+            CLIENT_UNLOCKED_LEVEL[client].add(level)
             # clean up stored seed after successful unlock
-            del CLIENT_LAST_SEED[client]
+            CLIENT_LAST_SEED.pop(client, None)
             # clear failed attempts
             CLIENT_ATTEMPTS[client] = 0
             CLIENT_LOCKOUT_UNTIL.pop(client, None)
             # Build positive response:
             # 0x27 + 0x40 = 0x67, payload: [sub_function]
-            return build_positive_response(SECURITY_ACCESS, bytes([sub_function]))
+            return build_positive_response(SECURITY_ACCESS, bytes([config.key_subfunction]))
 
     # Unsupported service
     return build_negative_response(sid, NRC_SERVICE_NOT_SUPPORTED)

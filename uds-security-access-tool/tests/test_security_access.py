@@ -1,3 +1,7 @@
+"""
+Docstring for uds-security-access-tool.tests.test_security_access
+Unit tests for security access functions.
+"""
 from src.security_access import derive_key_hmac_sha256, constant_time_compare
 
 
