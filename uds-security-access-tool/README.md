@@ -25,15 +25,22 @@ Local ECU simulator + UDS client demonstrating the UDS SecurityAccess (0x27) see
  **UDS 0x10 DiagnosticSessionControl**
   - Switch to **Extended Diagnostic Session (0x03)**
  
- **UDS 0x27 SecurityAccess (Level 1)**
+ **UDS 0x27 SecurityAccess (Level 1 + Level 2)**
+ - **Level 1**
   - Seed request: `27 01`
   - Key send: `27 02 <key>`
- 
+  - Demo key derivation: `HMAC-SHA256(seed, secret)[:4]`
+ - **Level 2**
+  - Seed request: `27 03`
+  - Key send: `27 04 <key>`
+  - Demo key derivation: `HMAC-SHA256(seed, secret)[:8]`
+    
  **Basic ECU protection behaviours**
   - SecurityAccess blocked unless session is `0x03` → **NRC 0x22**
   - Invalid key → **NRC 0x35**
   - Exceeded attempts → **NRC 0x36**
   - Delay after lockout → **NRC 0x37**
+  - Wrong sequence /wrong level (seed/key mismatch) → **NRC 0x24**
 
  **Testing + CI**
   - Unit tests for crypto functions
@@ -42,24 +49,34 @@ Local ECU simulator + UDS client demonstrating the UDS SecurityAccess (0x27) see
 
 ---
 
-## Protocol overview (Level 1)
+## Protocol overview 
 
-### Unlock sequence
-1) Switch to extended session  
+### Session switch (required before SecurityAccess)
+Switch to extended session  
 `10 03` → `50 03`
 
-2) Request seed  
-`27 01` → `67 01 <seed>`
+### Level 1 unlock sequence
+1) Request seed  
+`27 01` → `67 01 <seed4>`
 
-3) Derive key (demo algorithm)  
-`key = HMAC-SHA256(seed, secret)[:4]`
+2) Derive key (demo algorithm)  
+`key = HMAC-SHA256(seed4, secret)[:4]`
 
-4) Send key  
-`27 02 <key>` → `67 02`
+3) Send key  
+`27 02 <key4>` → `67 02`
 
+### Level 2 unlock sequence
+1) Request seed  
+`27 03` → `67 03 <seed8>`
+
+2) Derive key (demo algorithm)  
+`key = HMAC-SHA256(seed8, secret)[:8]`
+
+3) Send key  
+`27 04 <key8>` → `67 04`
 ---
 
-## Flowchart
+## Flowchart (Level 1)
 
 ```mermaid
 flowchart TD
@@ -97,6 +114,11 @@ python -m src.ecu_simulator
 ```bash
 python -m src.uds_client --unlock --secret SecretKey
 ```
+### Terminal 2 — Unlock Level 2
+
+```bash
+python -m src.uds_client --unlock --level 2 --secret SecretKey
+```
 
 ---
 
@@ -116,14 +138,15 @@ python -m src.uds_client --session 0x03
 Request seed only (works only in session 0x03):
 
 ```bash
-python -m src.uds_client --seed
+# Level 1 seed (27 01)
+python -m src.uds_client --seed --level 1
+
+# Level 2 seed (27 03)
+python -m src.uds_client --seed --level 2
 ```
-
 ---
 
----
-
-## Testing commands 
+## Testing commands
 
 ### 1) Session switching tests (positive + negative)
 
@@ -142,38 +165,57 @@ python -m src.uds_client --session 0x99
 
 ```bash
 # Without switching to session 0x03 first
-python -m src.uds_client --seed
+python -m src.uds_client --seed --level 1
 ```
 
 ### 3) Seed request (expected positive response 0x67)
 
 ```bash
 python -m src.uds_client --session 0x03
-python -m src.uds_client --seed
+
+# Level 1
+python -m src.uds_client --seed --level 1
+
+# Level 2
+python -m src.uds_client --seed --level 2
 ```
 
 ### 4) Unlock success
 
 ```bash
-python -m src.uds_client --unlock --secret SecretKey
+# Level 1
+python -m src.uds_client --unlock --level 1 --secret SecretKey
+
+# Level 2
+python -m src.uds_client --unlock --level 2 --secret SecretKey
 ```
 
 ### 5) Unlock failure + lockout demonstration (NRC 0x35 → 0x36 → 0x37)
 
 ```bash
-python -m src.uds_client --unlock --secret WRONG
-python -m src.uds_client --unlock --secret WRONG
-python -m src.uds_client --unlock --secret WRONG
+python -m src.uds_client --unlock --level 1 --secret WRONG
+python -m src.uds_client --unlock --level 1 --secret WRONG
+python -m src.uds_client --unlock --level 1 --secret WRONG
 
 # Now try seed during lockout window
-python -m src.uds_client --seed
+python -m src.uds_client --seed --level 1
 ```
 
 ### 6) After lockout expires (shows recovery)
 
 ```bash
 # Wait ~10 seconds (LOCKOUT_DURATION_S), then:
-python -m src.uds_client --seed
+python -m src.uds_client --seed --level 1
+```
+
+### 7) Wrong level / sequence demo (expected NRC 0x24)
+
+```bash
+# Ask for level 1 seed...
+python -m src.uds_client --seed --level 1
+
+# ...then try to unlock level 2 (seed/key mismatch may trigger NRC 0x24 in the simulator)
+python -m src.uds_client --unlock --level 2 --secret SecretKey
 ```
 
 ### Optional: raw UDP packet test (byte-level)
@@ -184,14 +226,14 @@ python -c "import socket; s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM); s.s
 
 ---
 
-## Example output
+## Example output (Level 2)
 
 ```text
-python -m src.uds_client --unlock --secret SecretKey
+python -m src.uds_client --unlock --level 2 --secret SecretKey
 Session Response: UDSResponse(ok=True, sid=0x50, payload=03)
-Seed Response: UDSResponse(ok=True, sid=0x67, payload=01ffe8bd05)
-Key Response: UDSResponse(ok=True, sid=0x67, payload=02)
-Security Level 1 unlocked successfully.
+Seed Response: UDSResponse(ok=True, sid=0x67, payload=03<seed...>)
+Key Response: UDSResponse(ok=True, sid=0x67, payload=04)
+Security Level 2 unlocked successfully.
 ```
 
 ---
