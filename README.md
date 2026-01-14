@@ -24,16 +24,21 @@ Each project is self-contained and includes documentation, code, and example out
 1. UDS Security Access Tool
    STATUS: Completed ✅
 
-A Python implementation of key UDS routines over UDP, including:
-- 0x10 Diagnostic Session Control
-- 0x27 SecurityAccess (Seed/Key) Level 1
-- Lockout & brute-force protections (NRC 0x35/0x36/0x37)
-- Session restriction for SecurityAccess (NRC 0x22)
-  
-Shows understanding of ECU security, diagnostics, and brute-force protection techniques.
-
 **Folder:** `uds-security-access-tool/`  
-**Docs:** See the project README inside the folder.
+**Docs:** See the `README.md` inside the project folder.
+
+A Python implementation of key UDS routines over UDP (educational transport), including:
+
+- **0x10 Diagnostic Session Control**
+- **0x27 SecurityAccess (Seed/Key)**: Level 1 + Level 2
+- **Session restriction for SecurityAccess** → NRC `0x22`
+- **Brute-force & lockout protections**
+  - Invalid key → NRC `0x35`
+  - Exceeded attempts → NRC `0x36`
+  - Required time delay not expired → NRC `0x37`
+
+Demonstrates understanding of **seed/key flows**, **ECU state machines**, and **basic protection behaviors**.
+
 ---
 
  2. CAN Bus Intrusion Detection System (IDS)
